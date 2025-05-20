@@ -9,12 +9,17 @@ import { Textarea } from "@/components/ui/textarea"
 import { Upload, FileText, Check, MessageSquare, RefreshCw, Database } from "lucide-react"
 import Image from "next/image"
 import Link from "next/link"
+import { toast } from "@/components/ui/use-toast"
+
+// API base URL - in a real app, this would come from environment variables
+const API_BASE_URL = "http://localhost:8000"
 
 export default function Home() {
   const [step, setStep] = useState<"upload" | "review" | "feedback" | "complete">("upload")
   const [file, setFile] = useState<File | null>(null)
   const [feedback, setFeedback] = useState("")
   const [isLoading, setIsLoading] = useState(false)
+  const [documentId, setDocumentId] = useState<string | null>(null)
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
@@ -27,47 +32,93 @@ export default function Home() {
 
     setIsLoading(true)
 
-    // In a real implementation, you would upload the file to your Python backend
-    const formData = new FormData()
-    formData.append("file", file)
-
     try {
-      // Simulate API call
-      await new Promise((resolve) => setTimeout(resolve, 2000))
+      const formData = new FormData()
+      formData.append("file", file)
+
+      const response = await fetch(`${API_BASE_URL}/upload`, {
+        method: "POST",
+        body: formData,
+      })
+
+      if (!response.ok) {
+        throw new Error(`Upload failed: ${response.status}`)
+      }
+
+      const data = await response.json()
+      setDocumentId(data.document_id)
       setStep("review")
     } catch (error) {
       console.error("Error uploading file:", error)
+      toast({
+        title: "Error",
+        description: "Failed to upload and analyze document. Please try again.",
+        variant: "destructive",
+      })
     } finally {
       setIsLoading(false)
     }
   }
 
   const handleAccept = async () => {
+    if (!documentId) return
+
     setIsLoading(true)
 
     try {
-      // Simulate API call to get clean document
-      await new Promise((resolve) => setTimeout(resolve, 2000))
+      const response = await fetch(`${API_BASE_URL}/accept/${documentId}`, {
+        method: "POST",
+      })
+
+      if (!response.ok) {
+        throw new Error(`Failed to accept suggestions: ${response.status}`)
+      }
+
+      await response.json()
       setStep("complete")
     } catch (error) {
       console.error("Error accepting suggestions:", error)
+      toast({
+        title: "Error",
+        description: "Failed to accept suggestions. Please try again.",
+        variant: "destructive",
+      })
     } finally {
       setIsLoading(false)
     }
   }
 
   const handleFeedbackSubmit = async () => {
-    if (!feedback.trim()) return
+    if (!feedback.trim() || !documentId) return
 
     setIsLoading(true)
 
     try {
-      // Simulate API call with feedback
-      await new Promise((resolve) => setTimeout(resolve, 2000))
+      const response = await fetch(`${API_BASE_URL}/feedback`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          document_id: documentId,
+          feedback: feedback,
+        }),
+      })
+
+      if (!response.ok) {
+        throw new Error(`Failed to submit feedback: ${response.status}`)
+      }
+
+      await response.json()
       setStep("review")
       setFeedback("")
     } catch (error) {
       console.error("Error submitting feedback:", error)
+      toast({
+        title: "Error",
+        description: "Failed to submit feedback. Please try again.",
+        variant: "destructive",
+      })
     } finally {
       setIsLoading(false)
     }
@@ -77,12 +128,22 @@ export default function Home() {
     setStep("upload")
     setFile(null)
     setFeedback("")
+    setDocumentId(null)
   }
 
   const downloadDocument = (type: "redline" | "clean") => {
-    // In a real implementation, this would trigger a download from your backend
-    const fileName = type === "redline" ? "nda_redline.docx" : "nda_clean.docx"
-    alert(`Downloading ${fileName}`)
+    if (!documentId) return
+
+    // Create a download link
+    const downloadUrl = `${API_BASE_URL}/download/${documentId}/${type}`
+
+    // Create a temporary anchor element and trigger the download
+    const a = document.createElement("a")
+    a.href = downloadUrl
+    a.download = type === "redline" ? "nda_redline.docx" : "nda_clean.docx"
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
   }
 
   return (

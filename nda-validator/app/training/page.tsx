@@ -9,41 +9,59 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Progress } from "@/components/ui/progress"
-import { Upload, Play, BarChart, Save } from "lucide-react"
+import { Upload, Play, BarChart, Save, AlertCircle } from "lucide-react"
+import { Checkbox } from "@/components/ui/checkbox"
 import Image from "next/image"
 import Link from "next/link"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import { toast } from "@/components/ui/use-toast"
 
 interface TrainingDataset {
   id: string
   name: string
-  documentCount: number
-  createdAt: string
+  document_count: number
+  created_at: string
+  is_redline?: boolean
 }
 
 interface TrainingJob {
   id: string
-  datasetId: string
-  status: "queued" | "running" | "completed" | "failed"
-  progress: number
-  createdAt: string
-  completedAt?: string
+  dataset_id: string
+  status: "running" | "completed" | "failed" | "queued"
+  created_at: string
+  completed_at?: string
   metrics?: {
     accuracy: number
     precision: number
     recall: number
-    f1Score: number
+    f1_score: number
   }
 }
 
 interface ModelVersion {
   id: string
   name: string
-  trainingJobId: string
+  training_job_id: string
   accuracy: number
-  createdAt: string
-  isActive: boolean
+  created_at: string
+  is_active: boolean
 }
+
+interface RedlineParseResult {
+  total_clauses: number
+  problematic_clauses: number
+  data: {
+    clauses: Array<{
+      text: string
+      is_problematic: boolean
+      replacement?: string
+    }>
+  }
+}
+
+// API base URL - in a real app, this would come from environment variables
+const API_BASE_URL = "http://localhost:8000"
 
 export default function TrainingPage() {
   const [activeTab, setActiveTab] = useState("datasets")
@@ -51,57 +69,135 @@ export default function TrainingPage() {
   const [trainingJobs, setTrainingJobs] = useState<TrainingJob[]>([])
   const [modelVersions, setModelVersions] = useState<ModelVersion[]>([])
   const [isUploading, setIsUploading] = useState(false)
+  const [isLoading, setIsLoading] = useState({
+    datasets: false,
+    jobs: false,
+    models: false,
+  })
   const [datasetName, setDatasetName] = useState("")
   const [selectedFiles, setSelectedFiles] = useState<FileList | null>(null)
-  const [selectedDataset, setSelectedDataset] = useState<string | null>(null)
+  const [isRedline, setIsRedline] = useState(false)
+  const [redlineParseResult, setRedlineParseResult] = useState<RedlineParseResult | null>(null)
+  const [showRedlinePreview, setShowRedlinePreview] = useState(false)
+  const [isParsingRedline, setIsParsingRedline] = useState(false)
 
-  // Mock data for demonstration
+  // Fetch data when the component mounts and when the active tab changes
   useEffect(() => {
-    // In a real implementation, these would be fetched from the API
-    setDatasets([
-      { id: "ds1", name: "Corporate NDAs", documentCount: 24, createdAt: "2025-05-10" },
-      { id: "ds2", name: "Vendor Agreements", documentCount: 18, createdAt: "2025-05-12" },
-    ])
+    if (activeTab === "datasets") {
+      fetchDatasets()
+    } else if (activeTab === "jobs") {
+      fetchTrainingJobs()
+    } else if (activeTab === "models") {
+      fetchModelVersions()
+    }
+  }, [activeTab])
 
-    setTrainingJobs([
-      {
-        id: "job1",
-        datasetId: "ds1",
-        status: "completed",
-        progress: 100,
-        createdAt: "2025-05-11",
-        completedAt: "2025-05-11",
-        metrics: {
-          accuracy: 0.89,
-          precision: 0.92,
-          recall: 0.87,
-          f1Score: 0.89,
-        },
-      },
-      {
-        id: "job2",
-        datasetId: "ds2",
-        status: "running",
-        progress: 65,
-        createdAt: "2025-05-14",
-      },
-    ])
+  const fetchDatasets = async () => {
+    setIsLoading((prev) => ({ ...prev, datasets: true }))
+    try {
+      const response = await fetch(`${API_BASE_URL}/datasets`)
+      if (!response.ok) {
+        throw new Error(`Failed to fetch datasets: ${response.status}`)
+      }
+      const data = await response.json()
+      setDatasets(data)
+    } catch (error) {
+      console.error("Error fetching datasets:", error)
+      toast({
+        title: "Error",
+        description: "Failed to load datasets. Please try again.",
+        variant: "destructive",
+      })
+    } finally {
+      setIsLoading((prev) => ({ ...prev, datasets: false }))
+    }
+  }
 
-    setModelVersions([
-      {
-        id: "model1",
-        name: "NDA-Validator-v1.2",
-        trainingJobId: "job1",
-        accuracy: 0.89,
-        createdAt: "2025-05-11",
-        isActive: true,
-      },
-    ])
-  }, [])
+  const fetchTrainingJobs = async () => {
+    setIsLoading((prev) => ({ ...prev, jobs: true }))
+    try {
+      const response = await fetch(`${API_BASE_URL}/training`)
+      if (!response.ok) {
+        throw new Error(`Failed to fetch training jobs: ${response.status}`)
+      }
+      const data = await response.json()
+      setTrainingJobs(data)
+    } catch (error) {
+      console.error("Error fetching training jobs:", error)
+      toast({
+        title: "Error",
+        description: "Failed to load training jobs. Please try again.",
+        variant: "destructive",
+      })
+    } finally {
+      setIsLoading((prev) => ({ ...prev, jobs: false }))
+    }
+  }
+
+  const fetchModelVersions = async () => {
+    setIsLoading((prev) => ({ ...prev, models: true }))
+    try {
+      const response = await fetch(`${API_BASE_URL}/models`)
+      if (!response.ok) {
+        throw new Error(`Failed to fetch model versions: ${response.status}`)
+      }
+      const data = await response.json()
+      setModelVersions(data)
+    } catch (error) {
+      console.error("Error fetching model versions:", error)
+      toast({
+        title: "Error",
+        description: "Failed to load model versions. Please try again.",
+        variant: "destructive",
+      })
+    } finally {
+      setIsLoading((prev) => ({ ...prev, models: false }))
+    }
+  }
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
       setSelectedFiles(e.target.files)
+
+      // If redline is selected and we have a file, parse it to preview
+      if (isRedline && e.target.files.length === 1) {
+        parseRedlineFile(e.target.files[0])
+      } else {
+        setRedlineParseResult(null)
+        setShowRedlinePreview(false)
+      }
+    }
+  }
+
+  const parseRedlineFile = async (file: File) => {
+    setIsParsingRedline(true)
+    setShowRedlinePreview(false)
+
+    try {
+      const formData = new FormData()
+      formData.append("file", file)
+
+      const response = await fetch(`${API_BASE_URL}/parse-redline`, {
+        method: "POST",
+        body: formData,
+      })
+
+      if (!response.ok) {
+        throw new Error(`Failed to parse redline document: ${response.status}`)
+      }
+
+      const result = await response.json()
+      setRedlineParseResult(result)
+      setShowRedlinePreview(true)
+    } catch (error) {
+      console.error("Error parsing redline document:", error)
+      toast({
+        title: "Error",
+        description: "Failed to parse redline document. Please try again.",
+        variant: "destructive",
+      })
+    } finally {
+      setIsParsingRedline(false)
     }
   }
 
@@ -110,70 +206,136 @@ export default function TrainingPage() {
 
     setIsUploading(true)
 
-    // In a real implementation, you would upload the files to your Python backend
     try {
-      // Simulate API call
-      await new Promise((resolve) => setTimeout(resolve, 2000))
+      const formData = new FormData()
+      formData.append("name", datasetName)
+      formData.append("is_redline", isRedline.toString())
 
-      // Add the new dataset to the list
-      const newDataset: TrainingDataset = {
-        id: `ds${datasets.length + 1}`,
-        name: datasetName,
-        documentCount: selectedFiles.length,
-        createdAt: new Date().toISOString().split("T")[0],
+      for (let i = 0; i < selectedFiles.length; i++) {
+        formData.append("files", selectedFiles[i])
       }
 
-      setDatasets([...datasets, newDataset])
+      const response = await fetch(`${API_BASE_URL}/datasets`, {
+        method: "POST",
+        body: formData,
+      })
+
+      if (!response.ok) {
+        throw new Error(`Failed to upload dataset: ${response.status}`)
+      }
+
+      const newDataset = await response.json()
+
+      toast({
+        title: "Success",
+        description: "Dataset uploaded successfully.",
+      })
+
+      // Refresh the datasets list
+      fetchDatasets()
+
+      // Reset form
       setDatasetName("")
       setSelectedFiles(null)
+      setRedlineParseResult(null)
+      setShowRedlinePreview(false)
 
       // Reset the file input
       const fileInput = document.getElementById("file-upload") as HTMLInputElement
       if (fileInput) fileInput.value = ""
     } catch (error) {
       console.error("Error uploading dataset:", error)
+      toast({
+        title: "Error",
+        description: "Failed to upload dataset. Please try again.",
+        variant: "destructive",
+      })
     } finally {
       setIsUploading(false)
     }
   }
 
   const startTraining = async (datasetId: string) => {
-    // In a real implementation, you would call your backend API to start training
     try {
-      // Simulate API call
-      await new Promise((resolve) => setTimeout(resolve, 1000))
+      const response = await fetch(`${API_BASE_URL}/training`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          dataset_id: datasetId,
+          epochs: 3,
+          batch_size: 8,
+          learning_rate: 2e-5,
+        }),
+      })
 
-      // Add a new training job
-      const newJob: TrainingJob = {
-        id: `job${trainingJobs.length + 1}`,
-        datasetId,
-        status: "queued",
-        progress: 0,
-        createdAt: new Date().toISOString().split("T")[0],
+      if (!response.ok) {
+        throw new Error(`Failed to start training: ${response.status}`)
       }
 
-      setTrainingJobs([...trainingJobs, newJob])
+      const result = await response.json()
+
+      toast({
+        title: "Success",
+        description: "Training job started successfully.",
+      })
+
+      // Refresh the training jobs list
+      fetchTrainingJobs()
     } catch (error) {
       console.error("Error starting training:", error)
+      toast({
+        title: "Error",
+        description: "Failed to start training job. Please try again.",
+        variant: "destructive",
+      })
     }
   }
 
   const activateModel = async (modelId: string) => {
-    // In a real implementation, you would call your backend API to activate the model
     try {
-      // Simulate API call
-      await new Promise((resolve) => setTimeout(resolve, 1000))
+      const response = await fetch(`${API_BASE_URL}/models/activate`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model_version_id: modelId,
+        }),
+      })
 
-      // Update model versions to set the selected one as active
-      const updatedModels = modelVersions.map((model) => ({
-        ...model,
-        isActive: model.id === modelId,
-      }))
+      if (!response.ok) {
+        throw new Error(`Failed to activate model: ${response.status}`)
+      }
 
-      setModelVersions(updatedModels)
+      const result = await response.json()
+
+      toast({
+        title: "Success",
+        description: "Model activated successfully.",
+      })
+
+      // Refresh the model versions list
+      fetchModelVersions()
     } catch (error) {
       console.error("Error activating model:", error)
+      toast({
+        title: "Error",
+        description: "Failed to activate model. Please try again.",
+        variant: "destructive",
+      })
     }
+  }
+
+  // Calculate job progress based on status
+  const getJobProgress = (job: TrainingJob) => {
+    if (job.status === "completed") return 100
+    if (job.status === "failed") return 100
+    if (job.status === "queued") return 0
+    // For running jobs, we don't have a progress indicator from the API
+    // In a real implementation, you would get this from the API
+    return 50
   }
 
   return (
@@ -226,8 +388,36 @@ export default function TrainingPage() {
                       />
                     </div>
 
+                    <div className="flex items-center space-x-2">
+                      <Checkbox
+                        id="is-redline"
+                        checked={isRedline}
+                        onCheckedChange={(checked: boolean) => {
+                          setIsRedline(checked === true)
+                          if (!checked) {
+                            setRedlineParseResult(null)
+                            setShowRedlinePreview(false)
+                          }
+                        }}
+                      />
+                      <Label htmlFor="is-redline">These are redline documents with tracked changes</Label>
+                    </div>
+
+                    {isRedline && (
+                      <Alert>
+                        <AlertCircle className="h-4 w-4" />
+                        <AlertTitle>Redline Document Processing</AlertTitle>
+                        <AlertDescription>
+                          The system will automatically extract problematic clauses (deletions) and their replacements
+                          (insertions) from redline documents with tracked changes.
+                        </AlertDescription>
+                      </Alert>
+                    )}
+
                     <div>
-                      <Label htmlFor="file-upload">Upload Labeled Documents</Label>
+                      <Label htmlFor="file-upload">
+                        {isRedline ? "Upload Redline Documents" : "Upload Labeled Documents"}
+                      </Label>
                       <div className="mt-1 flex items-center">
                         <input
                           type="file"
@@ -248,9 +438,52 @@ export default function TrainingPage() {
                         </span>
                       </div>
                       <p className="mt-1 text-xs text-gray-500">
-                        Upload Word documents with labeled problematic clauses or JSON annotation files
+                        {isRedline
+                          ? "Upload Word documents with tracked changes (redlines)"
+                          : "Upload Word documents with labeled problematic clauses or JSON annotation files"}
                       </p>
                     </div>
+
+                    {isParsingRedline && (
+                      <div className="text-center py-4">
+                        <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-[#003366] mx-auto mb-2"></div>
+                        <p className="text-sm text-gray-600">Parsing redline document...</p>
+                      </div>
+                    )}
+
+                    {showRedlinePreview && redlineParseResult && (
+                      <div className="border rounded-lg p-4 bg-gray-50">
+                        <h4 className="font-medium mb-2">Redline Document Preview</h4>
+                        <div className="space-y-2">
+                          <p className="text-sm">
+                            Found <span className="font-bold">{redlineParseResult.problematic_clauses}</span>{" "}
+                            problematic clauses with replacements out of {redlineParseResult.total_clauses} total
+                            clauses.
+                          </p>
+
+                          <div className="max-h-60 overflow-y-auto border rounded bg-white p-2">
+                            <Table>
+                              <TableHeader>
+                                <TableRow>
+                                  <TableHead>Problematic Clause</TableHead>
+                                  <TableHead>Replacement</TableHead>
+                                </TableRow>
+                              </TableHeader>
+                              <TableBody>
+                                {redlineParseResult.data.clauses
+                                  .filter((clause) => clause.is_problematic)
+                                  .map((clause, index) => (
+                                    <TableRow key={index}>
+                                      <TableCell className="text-red-600 line-through">{clause.text}</TableCell>
+                                      <TableCell className="text-green-600">{clause.replacement}</TableCell>
+                                    </TableRow>
+                                  ))}
+                              </TableBody>
+                            </Table>
+                          </div>
+                        </div>
+                      </div>
+                    )}
 
                     <Button
                       className="bg-[#003366] hover:bg-[#002244]"
@@ -264,38 +497,57 @@ export default function TrainingPage() {
 
                 <div>
                   <h3 className="text-lg font-medium mb-4">Available Datasets</h3>
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Name</TableHead>
-                        <TableHead>Documents</TableHead>
-                        <TableHead>Created</TableHead>
-                        <TableHead>Actions</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {datasets.map((dataset) => (
-                        <TableRow key={dataset.id}>
-                          <TableCell className="font-medium">{dataset.name}</TableCell>
-                          <TableCell>{dataset.documentCount}</TableCell>
-                          <TableCell>{dataset.createdAt}</TableCell>
-                          <TableCell>
-                            <Button variant="outline" size="sm" onClick={() => startTraining(dataset.id)}>
-                              <Play className="h-4 w-4 mr-2" />
-                              Train Model
-                            </Button>
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                      {datasets.length === 0 && (
+                  {isLoading.datasets ? (
+                    <div className="text-center py-8">
+                      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#003366] mx-auto mb-4"></div>
+                      <p>Loading datasets...</p>
+                    </div>
+                  ) : (
+                    <Table>
+                      <TableHeader>
                         <TableRow>
-                          <TableCell colSpan={4} className="text-center py-4 text-gray-500">
-                            No datasets available. Upload your first dataset to get started.
-                          </TableCell>
+                          <TableHead>Name</TableHead>
+                          <TableHead>Type</TableHead>
+                          <TableHead>Documents</TableHead>
+                          <TableHead>Created</TableHead>
+                          <TableHead>Actions</TableHead>
                         </TableRow>
-                      )}
-                    </TableBody>
-                  </Table>
+                      </TableHeader>
+                      <TableBody>
+                        {datasets.map((dataset) => (
+                          <TableRow key={dataset.id}>
+                            <TableCell className="font-medium">{dataset.name}</TableCell>
+                            <TableCell>
+                              {dataset.is_redline ? (
+                                <span className="px-2 py-1 rounded-full text-xs bg-blue-100 text-blue-800">
+                                  Redline
+                                </span>
+                              ) : (
+                                <span className="px-2 py-1 rounded-full text-xs bg-gray-100 text-gray-800">
+                                  Standard
+                                </span>
+                              )}
+                            </TableCell>
+                            <TableCell>{dataset.document_count}</TableCell>
+                            <TableCell>{new Date(dataset.created_at).toLocaleDateString()}</TableCell>
+                            <TableCell>
+                              <Button variant="outline" size="sm" onClick={() => startTraining(dataset.id)}>
+                                <Play className="h-4 w-4 mr-2" />
+                                Train Model
+                              </Button>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                        {datasets.length === 0 && (
+                          <TableRow>
+                            <TableCell colSpan={5} className="text-center py-4 text-gray-500">
+                              No datasets available. Upload your first dataset to get started.
+                            </TableCell>
+                          </TableRow>
+                        )}
+                      </TableBody>
+                    </Table>
+                  )}
                 </div>
               </CardContent>
             </Card>
@@ -309,66 +561,73 @@ export default function TrainingPage() {
                 <CardDescription className="text-gray-200">Monitor and manage model training jobs</CardDescription>
               </CardHeader>
               <CardContent className="pt-6">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Dataset</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead>Progress</TableHead>
-                      <TableHead>Started</TableHead>
-                      <TableHead>Metrics</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {trainingJobs.map((job) => {
-                      const dataset = datasets.find((d) => d.id === job.datasetId)
-                      return (
-                        <TableRow key={job.id}>
-                          <TableCell className="font-medium">{dataset?.name || job.datasetId}</TableCell>
-                          <TableCell>
-                            <span
-                              className={`px-2 py-1 rounded-full text-xs ${
-                                job.status === "completed"
-                                  ? "bg-green-100 text-green-800"
-                                  : job.status === "running"
-                                    ? "bg-blue-100 text-blue-800"
-                                    : job.status === "queued"
-                                      ? "bg-yellow-100 text-yellow-800"
-                                      : "bg-red-100 text-red-800"
-                              }`}
-                            >
-                              {job.status.charAt(0).toUpperCase() + job.status.slice(1)}
-                            </span>
-                          </TableCell>
-                          <TableCell>
-                            <div className="w-full max-w-xs">
-                              <Progress value={job.progress} className="h-2" />
-                              <span className="text-xs text-gray-500 mt-1">{job.progress}%</span>
-                            </div>
-                          </TableCell>
-                          <TableCell>{job.createdAt}</TableCell>
-                          <TableCell>
-                            {job.metrics ? (
-                              <Button variant="outline" size="sm">
-                                <BarChart className="h-4 w-4 mr-2" />
-                                View Metrics
-                              </Button>
-                            ) : (
-                              <span className="text-gray-500 text-sm">Not available</span>
-                            )}
+                {isLoading.jobs ? (
+                  <div className="text-center py-8">
+                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#003366] mx-auto mb-4"></div>
+                    <p>Loading training jobs...</p>
+                  </div>
+                ) : (
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Dataset</TableHead>
+                        <TableHead>Status</TableHead>
+                        <TableHead>Progress</TableHead>
+                        <TableHead>Started</TableHead>
+                        <TableHead>Metrics</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {trainingJobs.map((job) => {
+                        const dataset = datasets.find((d) => d.id === job.dataset_id)
+                        return (
+                          <TableRow key={job.id}>
+                            <TableCell className="font-medium">{dataset?.name || job.dataset_id}</TableCell>
+                            <TableCell>
+                              <span
+                                className={`px-2 py-1 rounded-full text-xs ${
+                                  job.status === "completed"
+                                    ? "bg-green-100 text-green-800"
+                                    : job.status === "running"
+                                      ? "bg-blue-100 text-blue-800"
+                                      : job.status === "queued"
+                                        ? "bg-yellow-100 text-yellow-800"
+                                        : "bg-red-100 text-red-800"
+                                }`}
+                              >
+                                {job.status.charAt(0).toUpperCase() + job.status.slice(1)}
+                              </span>
+                            </TableCell>
+                            <TableCell>
+                              <div className="w-full max-w-xs">
+                                <Progress value={getJobProgress(job)} className="h-2" />
+                                <span className="text-xs text-gray-500 mt-1">{getJobProgress(job)}%</span>
+                              </div>
+                            </TableCell>
+                            <TableCell>{new Date(job.created_at).toLocaleDateString()}</TableCell>
+                            <TableCell>
+                              {job.metrics ? (
+                                <Button variant="outline" size="sm">
+                                  <BarChart className="h-4 w-4 mr-2" />
+                                  View Metrics
+                                </Button>
+                              ) : (
+                                <span className="text-gray-500 text-sm">Not available</span>
+                              )}
+                            </TableCell>
+                          </TableRow>
+                        )
+                      })}
+                      {trainingJobs.length === 0 && (
+                        <TableRow>
+                          <TableCell colSpan={5} className="text-center py-4 text-gray-500">
+                            No training jobs found. Start a new training job from the Datasets tab.
                           </TableCell>
                         </TableRow>
-                      )
-                    })}
-                    {trainingJobs.length === 0 && (
-                      <TableRow>
-                        <TableCell colSpan={5} className="text-center py-4 text-gray-500">
-                          No training jobs found. Start a new training job from the Datasets tab.
-                        </TableCell>
-                      </TableRow>
-                    )}
-                  </TableBody>
-                </Table>
+                      )}
+                    </TableBody>
+                  </Table>
+                )}
               </CardContent>
             </Card>
           </TabsContent>
@@ -381,53 +640,60 @@ export default function TrainingPage() {
                 <CardDescription className="text-gray-200">Manage and deploy trained model versions</CardDescription>
               </CardHeader>
               <CardContent className="pt-6">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Name</TableHead>
-                      <TableHead>Accuracy</TableHead>
-                      <TableHead>Created</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead>Actions</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {modelVersions.map((model) => (
-                      <TableRow key={model.id}>
-                        <TableCell className="font-medium">{model.name}</TableCell>
-                        <TableCell>{(model.accuracy * 100).toFixed(1)}%</TableCell>
-                        <TableCell>{model.createdAt}</TableCell>
-                        <TableCell>
-                          {model.isActive ? (
-                            <span className="px-2 py-1 rounded-full text-xs bg-green-100 text-green-800">Active</span>
-                          ) : (
-                            <span className="px-2 py-1 rounded-full text-xs bg-gray-100 text-gray-800">Inactive</span>
-                          )}
-                        </TableCell>
-                        <TableCell>
-                          {model.isActive ? (
-                            <Button variant="outline" size="sm" disabled>
-                              <Save className="h-4 w-4 mr-2" />
-                              Current Model
-                            </Button>
-                          ) : (
-                            <Button variant="outline" size="sm" onClick={() => activateModel(model.id)}>
-                              <Save className="h-4 w-4 mr-2" />
-                              Activate
-                            </Button>
-                          )}
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                    {modelVersions.length === 0 && (
+                {isLoading.models ? (
+                  <div className="text-center py-8">
+                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#003366] mx-auto mb-4"></div>
+                    <p>Loading model versions...</p>
+                  </div>
+                ) : (
+                  <Table>
+                    <TableHeader>
                       <TableRow>
-                        <TableCell colSpan={5} className="text-center py-4 text-gray-500">
-                          No model versions available. Complete a training job to create a model version.
-                        </TableCell>
+                        <TableHead>Name</TableHead>
+                        <TableHead>Accuracy</TableHead>
+                        <TableHead>Created</TableHead>
+                        <TableHead>Status</TableHead>
+                        <TableHead>Actions</TableHead>
                       </TableRow>
-                    )}
-                  </TableBody>
-                </Table>
+                    </TableHeader>
+                    <TableBody>
+                      {modelVersions.map((model) => (
+                        <TableRow key={model.id}>
+                          <TableCell className="font-medium">{model.name}</TableCell>
+                          <TableCell>{(model.accuracy * 100).toFixed(1)}%</TableCell>
+                          <TableCell>{new Date(model.created_at).toLocaleDateString()}</TableCell>
+                          <TableCell>
+                            {model.is_active ? (
+                              <span className="px-2 py-1 rounded-full text-xs bg-green-100 text-green-800">Active</span>
+                            ) : (
+                              <span className="px-2 py-1 rounded-full text-xs bg-gray-100 text-gray-800">Inactive</span>
+                            )}
+                          </TableCell>
+                          <TableCell>
+                            {model.is_active ? (
+                              <Button variant="outline" size="sm" disabled>
+                                <Save className="h-4 w-4 mr-2" />
+                                Current Model
+                              </Button>
+                            ) : (
+                              <Button variant="outline" size="sm" onClick={() => activateModel(model.id)}>
+                                <Save className="h-4 w-4 mr-2" />
+                                Activate
+                              </Button>
+                            )}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                      {modelVersions.length === 0 && (
+                        <TableRow>
+                          <TableCell colSpan={5} className="text-center py-4 text-gray-500">
+                            No model versions available. Complete a training job to create a model version.
+                          </TableCell>
+                        </TableRow>
+                      )}
+                    </TableBody>
+                  </Table>
+                )}
               </CardContent>
             </Card>
           </TabsContent>

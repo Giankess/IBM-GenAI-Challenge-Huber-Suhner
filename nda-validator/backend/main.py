@@ -2,7 +2,7 @@ from fastapi import FastAPI, UploadFile, File, Form, HTTPException, BackgroundTa
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
 import os
 import tempfile
 import shutil
@@ -13,6 +13,7 @@ import uuid
 import json
 import datetime
 from train import train_model, create_dataset, activate_model
+from redline_parser import process_redline_document
 
 app = FastAPI(title="NDA Validator API")
 
@@ -46,12 +47,27 @@ if not os.path.exists(memory_file):
     with open(memory_file, "w") as f:
         json.dump([], f)
 
+# Load replacements database if it exists
+replacements_db = {}
+for dataset_dir in os.listdir("training_data"):
+    replacements_path = f"training_data/{dataset_dir}/replacements.json"
+    if os.path.exists(replacements_path):
+        try:
+            with open(replacements_path, 'r') as f:
+                replacements = json.load(f)
+                for item in replacements:
+                    if "original" in item and "replacement" in item:
+                        replacements_db[item["original"]] = item["replacement"]
+        except Exception as e:
+            print(f"Error loading replacements from {replacements_path}: {str(e)}")
+
 class FeedbackModel(BaseModel):
     document_id: str
     feedback: str
 
 class DatasetModel(BaseModel):
     name: str
+    is_redline: bool = False
 
 class TrainingModel(BaseModel):
     dataset_id: str
@@ -173,14 +189,36 @@ def make_suggestions(problematic_clauses):
     suggestions = []
     
     for clause in problematic_clauses:
-        # In a real implementation, this would use a more sophisticated approach
-        # For now, we'll use a simple template-based suggestion
-        suggestion = {
-            "index": clause["index"],
-            "original": clause["text"],
-            "suggested": f"SUGGESTED CHANGE: {clause['text']} [This clause has been identified as potentially problematic and should be reviewed]",
-            "reason": "This clause may contain terms that are unfavorable or legally problematic."
-        }
+        # Check if we have a replacement for this clause in our database
+        replacement_text = None
+        if clause["text"] in replacements_db:
+            replacement_text = replacements_db[clause["text"]]
+        
+        # If no exact match, try to find a similar clause
+        if not replacement_text:
+            for original, replacement in replacements_db.items():
+                # Simple similarity check - in a real implementation, use a more sophisticated approach
+                if len(original) > 20 and original in clause["text"]:
+                    replacement_text = replacement
+                    break
+        
+        # If we found a replacement, use it
+        if replacement_text:
+            suggestion = {
+                "index": clause["index"],
+                "original": clause["text"],
+                "suggested": f"SUGGESTED CHANGE: {replacement_text}",
+                "reason": "This clause has been identified as problematic based on previous redlines."
+            }
+        else:
+            # Otherwise use a generic suggestion
+            suggestion = {
+                "index": clause["index"],
+                "original": clause["text"],
+                "suggested": f"SUGGESTED CHANGE: {clause['text']} [This clause has been identified as potentially problematic and should be reviewed]",
+                "reason": "This clause may contain terms that are unfavorable or legally problematic."
+            }
+        
         suggestions.append(suggestion)
     
     return suggestions
@@ -364,7 +402,7 @@ def create_clean_document(document_id, original_path, suggestions):
 # Training API endpoints
 
 @app.post("/datasets")
-async def create_training_dataset(name: str = Form(...), files: List[UploadFile] = File(...)):
+async def create_training_dataset(name: str = Form(...), is_redline: bool = Form(False), files: List[UploadFile] = File(...)):
     """
     Create a new training dataset from uploaded files
     """
@@ -375,13 +413,14 @@ async def create_training_dataset(name: str = Form(...), files: List[UploadFile]
         if not file.filename.endswith(('.docx', '.doc', '.json')):
             raise HTTPException(status_code=400, detail="Only Word documents and JSON annotation files are supported")
     
-    dataset_id, metadata = create_dataset(name, files)
+    dataset_id, metadata = create_dataset(name, files, is_redline)
     
     return {
         "dataset_id": dataset_id,
         "name": metadata["name"],
         "document_count": metadata["document_count"],
-        "created_at": metadata["created_at"]
+        "created_at": metadata["created_at"],
+        "is_redline": metadata.get("is_redline", False)
     }
 
 @app.get("/datasets")
@@ -470,6 +509,36 @@ async def activate_model_version(activation: ModelActivationModel):
         "message": "Model activated successfully",
         "model_version_id": activation.model_version_id
     }
+
+@app.post("/parse-redline")
+async def parse_redline(file: UploadFile = File(...)):
+    """
+    Parse a redline document and return the extracted problematic clauses and replacements
+    """
+    if not file.filename.endswith(('.docx', '.doc')):
+        raise HTTPException(status_code=400, detail="Only Word documents are supported")
+    
+    # Save the uploaded file temporarily
+    temp_file = f"temp_{uuid.uuid4()}.docx"
+    with open(temp_file, "wb") as f:
+        shutil.copyfileobj(file.file, f)
+    
+    try:
+        # Process the redline document
+        training_data = process_redline_document(temp_file)
+        
+        # Count problematic clauses
+        problematic_count = sum(1 for clause in training_data["clauses"] if clause.get("is_problematic", False))
+        
+        return {
+            "total_clauses": len(training_data["clauses"]),
+            "problematic_clauses": problematic_count,
+            "data": training_data
+        }
+    finally:
+        # Clean up the temporary file
+        if os.path.exists(temp_file):
+            os.remove(temp_file)
 
 if __name__ == "__main__":
     import uvicorn

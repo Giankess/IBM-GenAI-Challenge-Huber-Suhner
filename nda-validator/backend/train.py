@@ -10,6 +10,7 @@ import logging
 from docx import Document
 import uuid
 from datetime import datetime
+from redline_parser import process_redline_document
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -105,12 +106,44 @@ def parse_json_annotations(file_path):
     
     clauses = []
     labels = []
+    replacements = []
     
     for clause in data.get("clauses", []):
         clauses.append(clause["text"])
         labels.append(1 if clause.get("is_problematic", False) else 0)
+        
+        # Check if there's a replacement for this clause
+        if clause.get("is_problematic", False) and "replacement" in clause and clause["replacement"]:
+            replacements.append({
+                "original": clause["text"],
+                "replacement": clause["replacement"]
+            })
     
-    return clauses, labels
+    return clauses, labels, replacements
+
+def parse_redline_document(file_path):
+    """
+    Parse a redline Word document and extract problematic clauses and replacements
+    """
+    # Process the redline document
+    training_data = process_redline_document(file_path)
+    
+    clauses = []
+    labels = []
+    replacements = []
+    
+    for clause in training_data.get("clauses", []):
+        clauses.append(clause["text"])
+        labels.append(1 if clause.get("is_problematic", False) else 0)
+        
+        # Check if there's a replacement for this clause
+        if clause.get("is_problematic", False) and "replacement" in clause and clause["replacement"]:
+            replacements.append({
+                "original": clause["text"],
+                "replacement": clause["replacement"]
+            })
+    
+    return clauses, labels, replacements
 
 def load_dataset(dataset_id):
     """
@@ -123,6 +156,7 @@ def load_dataset(dataset_id):
     
     all_clauses = []
     all_labels = []
+    all_replacements = []
     
     # Load dataset metadata
     with open(f"{dataset_dir}/metadata.json", 'r') as f:
@@ -136,9 +170,16 @@ def load_dataset(dataset_id):
         file_path = os.path.join(dataset_dir, filename)
         
         if filename.endswith('.docx') or filename.endswith('.doc'):
-            clauses, labels = parse_training_document(file_path)
+            # Check if it's a redline document
+            if "redline" in filename.lower() or metadata.get("is_redline", False):
+                clauses, labels, replacements = parse_redline_document(file_path)
+                all_replacements.extend(replacements)
+            else:
+                clauses, labels = parse_training_document(file_path)
+                replacements = []
         elif filename.endswith('.json'):
-            clauses, labels = parse_json_annotations(file_path)
+            clauses, labels, replacements = parse_json_annotations(file_path)
+            all_replacements.extend(replacements)
         else:
             logger.warning(f"Skipping unsupported file: {filename}")
             continue
@@ -148,6 +189,12 @@ def load_dataset(dataset_id):
     
     logger.info(f"Loaded {len(all_clauses)} clauses from dataset {dataset_id}")
     logger.info(f"Problematic clauses: {sum(all_labels)}, Non-problematic clauses: {len(all_labels) - sum(all_labels)}")
+    logger.info(f"Replacements: {len(all_replacements)}")
+    
+    # Save replacements for future use
+    replacements_path = f"{dataset_dir}/replacements.json"
+    with open(replacements_path, 'w') as f:
+        json.dump(all_replacements, f, indent=2)
     
     return all_clauses, all_labels, metadata
 
@@ -326,7 +373,7 @@ def activate_model(model_version_id):
         logger.error(f"Error activating model: {str(e)}")
         return False
 
-def create_dataset(name, files):
+def create_dataset(name, files, is_redline=False):
     """
     Create a new training dataset from uploaded files
     """
@@ -339,7 +386,8 @@ def create_dataset(name, files):
         "id": dataset_id,
         "name": name,
         "created_at": datetime.now().isoformat(),
-        "document_count": len(files)
+        "document_count": len(files),
+        "is_redline": is_redline
     }
     
     with open(f"{dataset_dir}/metadata.json", 'w') as f:
