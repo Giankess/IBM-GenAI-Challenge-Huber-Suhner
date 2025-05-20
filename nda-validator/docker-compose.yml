@@ -15,8 +15,8 @@ services:
 
   frontend:
     build:
-      context: ./frontend/app
-      dockerfile: ../../Dockerfile.frontend
+      context: ./frontend
+      dockerfile: ../Dockerfile.frontend
     ports:
       - "3000:3000"
     environment:

@@ -2,18 +2,23 @@ FROM node:18-alpine
 
 WORKDIR /app
 
-# Copy package.json and package-lock.json
+# Copy package files first
 COPY package*.json ./
 
-# Install dependencies with legacy-peer-deps flag to resolve dependency conflicts
+# Install dependencies
 RUN npm install --legacy-peer-deps
 
-# Copy the entire frontend directory
+# Create app directory and copy app files
+RUN mkdir -p app
+COPY app/* ./app/
+
+# Copy all other files
 COPY . .
 
-# Verify the app directory exists before building
+# Debug: List all files and directories
 RUN ls -la && \
-    if [ ! -d "app" ]; then echo "app directory is missing!"; exit 1; fi
+    echo "Checking app directory:" && \
+    ls -la app/
 
 # Build the application
 RUN npm run build
