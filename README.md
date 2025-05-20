@@ -72,8 +72,7 @@ An AI-powered tool for validating, analyzing, and suggesting improvements to Non
    git clone https://github.com/yourusername/nda-validator.git
    cd nda-validator
 
-   2. Set up the Python environment:
-
+2. Set up the Python environment:
 ```shellscript
 cd backend
 python -m venv venv
@@ -256,113 +255,8 @@ nda-validator/
 
 ## License
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+
 
 ## Contributing
 
 Contributions are welcome! Please feel free to submit a Pull Request.
-```
-
-## NDA Validator AI Assistant - Setup and Usage Guide
-
-I've created a comprehensive README for the NDA Validator project that explains what it does and provides clear setup instructions. Here's a summary of the key points:
-
-### What It Does
-
-The NDA Validator is an AI-powered tool that:
-
-1. **Analyzes NDAs**: Uses machine learning to identify problematic clauses in legal documents
-2. **Generates Redlines**: Creates redline documents with suggested improvements
-3. **Learns from Feedback**: Incorporates user feedback to improve future suggestions
-4. **Trains Custom Models**: Allows you to train models on your own legal documents
-5. **Extracts from Redlines**: Can learn from existing redlined documents with tracked changes
-
-
-### Key Features
-
-- **AI-powered Analysis**: Automatically identifies problematic clauses
-- **Redline Generation**: Creates professional redline documents
-- **Training Dashboard**: Comprehensive interface for model training
-- **Redline Document Learning**: Extracts training data from existing redlines
-- **Model Management**: Deploy and manage different model versions
-
-
-### Setup Instructions
-
-#### Backend Setup
-
-1. **Clone the repository**:
-
-```shellscript
-git clone https://github.com/yourusername/nda-validator.git
-cd nda-validator
-```
-
-
-2. **Set up Python environment**:
-
-```shellscript
-cd backend
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-pip install -r requirements.txt
-```
-
-
-3. **Run the backend server**:
-
-```shellscript
-uvicorn main:app --reload --host 0.0.0.0 --port 8000
-```
-
-
-
-
-#### Frontend Setup
-
-1. **Navigate to frontend directory**:
-
-```shellscript
-cd frontend
-```
-
-
-2. **Install dependencies**:
-
-```shellscript
-npm install
-```
-
-
-3. **Create environment configuration**:
-
-```plaintext
-NEXT_PUBLIC_API_URL=http://localhost:8000
-```
-
-
-4. **Run the development server**:
-
-```shellscript
-npm run dev
-```
-
-
-
-
-### Usage Guide
-
-1. **Upload an NDA**: Start by uploading a Word document
-2. **Review Suggestions**: The AI will identify problematic clauses and suggest changes
-3. **Accept or Provide Feedback**: Either accept all suggestions or provide feedback
-4. **Download Final Document**: Get your clean or revised document
-
-
-### Training Custom Models
-
-1. **Create Datasets**: Upload labeled documents or redlines with tracked changes
-2. **Train Models**: Start training jobs on your datasets
-3. **Activate Models**: Deploy trained models for use in the validator
-
-
-The README provides detailed API documentation, project structure, and explanations of how the system works under the hood. This should give users a clear understanding of the project and how to set it up.
