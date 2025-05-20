@@ -1,0 +1,11 @@
+{
+  "id": "324e946c-74d9-4bb4-874b-d1eba20d1e05",
+  "dataset_id": "a456a779-3f92-4914-a8f7-dd715ecb27a0",
+  "status": "running",
+  "created_at": "2025-05-20T21:34:32.632661",
+  "parameters": {
+    "epochs": 3,
+    "batch_size": 8,
+    "learning_rate": 2e-05
+  }
+}

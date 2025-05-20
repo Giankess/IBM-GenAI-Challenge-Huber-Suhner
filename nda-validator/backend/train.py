@@ -100,6 +100,11 @@ def parse_json_annotations(file_path):
             ...
         ]
     }
+    OR
+    [
+        {"text": "clause text", "is_problematic": true/false},
+        ...
+    ]
     """
     with open(file_path, 'r') as f:
         data = json.load(f)
@@ -108,7 +113,13 @@ def parse_json_annotations(file_path):
     labels = []
     replacements = []
     
-    for clause in data.get("clauses", []):
+    # Handle both list and dictionary formats
+    if isinstance(data, dict):
+        clauses_data = data.get("clauses", [])
+    else:
+        clauses_data = data
+    
+    for clause in clauses_data:
         clauses.append(clause["text"])
         labels.append(1 if clause.get("is_problematic", False) else 0)
         

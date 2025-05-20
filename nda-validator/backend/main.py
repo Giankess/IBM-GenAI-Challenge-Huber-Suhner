@@ -7,7 +7,15 @@ import os
 import tempfile
 import shutil
 from docx import Document
-from docx.shared import RGB
+try:
+    from docx.shared import RGB
+except ImportError:
+    # Fallback color values if RGB import fails
+    class RGB:
+        def __init__(self, r, g, b):
+            self.r = r
+            self.g = g
+            self.b = b
 from transformers import AutoTokenizer, AutoModelForSequenceClassification
 import torch
 import uuid
