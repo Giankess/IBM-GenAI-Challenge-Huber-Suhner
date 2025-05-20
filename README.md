@@ -69,7 +69,7 @@ An AI-powered tool for validating, analyzing, and suggesting improvements to Non
 
 1. Clone the repository:
    ```bash
-   git clone https://github.com/yourusername/nda-validator.git
+   git clone https://github.com/Giankess/IBM-GenAI-Challenge-Huber-Suhner.git
    cd nda-validator
 
 2. Set up the Python environment:
