@@ -1,0 +1,12 @@
+{
+  "id": "f52b3178-c9be-422a-91ef-e4ab0261df65",
+  "dataset_id": "71f132c6-82a2-4fdd-bead-4d86eb603036",
+  "status": "failed",
+  "created_at": "2025-05-20T18:29:26.388393",
+  "parameters": {
+    "epochs": 3,
+    "batch_size": 8,
+    "learning_rate": 2e-05
+  },
+  "error": "Using the `Trainer` with `PyTorch` requires `accelerate>=0.20.1`: Please run `pip install transformers[torch]` or `pip install accelerate -U`"
+}

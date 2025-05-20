@@ -1,0 +1,12 @@
+{
+  "id": "dca10d35-e66b-40b4-bd4d-e1ed798b444b",
+  "dataset_id": "71f132c6-82a2-4fdd-bead-4d86eb603036",
+  "status": "failed",
+  "created_at": "2025-05-20T18:29:29.452346",
+  "parameters": {
+    "epochs": 3,
+    "batch_size": 8,
+    "learning_rate": 2e-05
+  },
+  "error": "'list' object has no attribute 'get'"
+}

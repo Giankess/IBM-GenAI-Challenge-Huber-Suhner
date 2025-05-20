@@ -189,7 +189,9 @@ export default function Home() {
                   onChange={handleFileChange}
                 />
                 <label htmlFor="file-upload">
-                  <Button className="bg-[#003366] hover:bg-[#002244]">Select Document</Button>
+                  <Button asChild className="bg-[#003366] hover:bg-[#002244]">
+                    <span>Select Document</span>
+                  </Button>
                 </label>
                 {file && (
                   <div className="mt-4 flex items-center">
