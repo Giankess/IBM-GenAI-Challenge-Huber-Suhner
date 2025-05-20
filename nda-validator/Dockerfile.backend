@@ -1,0 +1,21 @@
+FROM python:3.10-slim
+
+WORKDIR /app
+
+# Install dependencies
+COPY backend/requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy the rest of the application
+COPY backend/ .
+
+# Create necessary directories
+RUN mkdir -p documents memory training_data models
+RUN touch models/versions.json
+RUN echo "[]" > models/versions.json
+
+# Expose the port
+EXPOSE 8000
+
+# Start the application
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
