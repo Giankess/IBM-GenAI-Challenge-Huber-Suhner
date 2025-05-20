@@ -7,6 +7,7 @@ import os
 import tempfile
 import shutil
 from docx import Document
+from docx.shared import RGB
 from transformers import AutoTokenizer, AutoModelForSequenceClassification
 import torch
 import uuid
@@ -81,58 +82,84 @@ class ModelActivationModel(BaseModel):
 @app.post("/upload")
 async def upload_document(file: UploadFile = File(...)):
     """
-    Upload an NDA document for analysis
+    Upload and process a document
     """
-    if not file.filename.endswith(('.docx', '.doc')):
-        raise HTTPException(status_code=400, detail="Only Word documents are supported")
+    if not file.filename.endswith('.docx'):
+        raise HTTPException(status_code=400, detail="Only .docx files are supported")
     
-    # Generate a unique ID for this document
+    # Generate unique document ID
     document_id = str(uuid.uuid4())
+    print(f"Processing document with ID: {document_id}")
     
     # Save the uploaded file
-    file_location = f"documents/{document_id}_original.docx"
-    with open(file_location, "wb") as f:
-        shutil.copyfileobj(file.file, f)
-    
-    # Process the document
-    redline_path = await process_document(document_id, file_location)
-    
-    return {"document_id": document_id, "redline_path": redline_path}
+    file_path = f"documents/{document_id}.docx"
+    try:
+        print(f"Saving uploaded file to: {file_path}")
+        with open(file_path, "wb") as f:
+            content = await file.read()
+            f.write(content)
+        
+        # Verify file was saved
+        if not os.path.exists(file_path):
+            raise HTTPException(status_code=500, detail="Failed to save uploaded file")
+        
+        file_size = os.path.getsize(file_path)
+        print(f"Successfully saved file: {file_path} (size: {file_size} bytes)")
+        
+        # Process the document
+        try:
+            # Load the document
+            doc = Document(file_path)
+            
+            # Parse document content
+            doc_content = parse_document(doc)
+            print(f"Parsed {len(doc_content)} paragraphs from document")
+            
+            # Check for problematic clauses
+            problematic_clauses = check_document(doc_content)
+            print(f"Found {len(problematic_clauses)} problematic clauses")
+            
+            # Generate suggestions
+            suggestions = make_suggestions(problematic_clauses)
+            print(f"Generated {len(suggestions)} suggestions")
+            
+            # Create redline document
+            redline_path = create_redline_document(document_id, file_path, suggestions)
+            print(f"Created redline document at: {redline_path}")
+            
+            # Verify redline document was created
+            if not os.path.exists(redline_path):
+                raise HTTPException(status_code=500, detail="Failed to create redline document")
+            
+            # Save to memory
+            save_to_memory(document_id, {
+                "original_file": file_path,
+                "redline_file": redline_path,
+                "suggestions": suggestions,
+                "original_filename": file.filename.replace('.docx', '')
+            })
+            print("Successfully saved document data to memory")
+            
+            return {
+                "document_id": document_id,
+                "suggestions": suggestions
+            }
+            
+        except Exception as e:
+            print(f"Error processing document: {str(e)}")
+            # Clean up files if processing fails
+            if os.path.exists(file_path):
+                os.remove(file_path)
+            raise HTTPException(status_code=500, detail=f"Error processing document: {str(e)}")
+            
+    except Exception as e:
+        print(f"Error saving uploaded file: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error saving uploaded file: {str(e)}")
 
-async def process_document(document_id: str, file_path: str):
-    """
-    Process the document through all the required steps
-    """
-    # 1. Parse the document
-    doc_content = parse_document(file_path)
-    
-    # 2. Check for problematic clauses
-    problematic_clauses = check_document(doc_content)
-    
-    # 3. Make suggestions
-    suggestions = make_suggestions(problematic_clauses)
-    
-    # 4. Validate suggestions
-    validated_suggestions = validate_suggestions(suggestions)
-    
-    # 5. Create redline document
-    redline_path = create_redline_document(document_id, file_path, validated_suggestions)
-    
-    # Save to memory
-    save_to_memory(document_id, {
-        "original_path": file_path,
-        "problematic_clauses": problematic_clauses,
-        "suggestions": validated_suggestions,
-        "redline_path": redline_path
-    })
-    
-    return redline_path
-
-def parse_document(file_path: str):
+def parse_document(doc):
     """
     Parse the Word document and extract text
     """
-    doc = Document(file_path)
     content = []
     
     for para in doc.paragraphs:
@@ -150,6 +177,10 @@ def check_document(doc_content):
     """
     problematic_clauses = []
     
+    # Initialize model and tokenizer
+    model = AutoModelForSequenceClassification.from_pretrained("nlpaueb/legal-bert-base-uncased", num_labels=2)
+    tokenizer = AutoTokenizer.from_pretrained("nlpaueb/legal-bert-base-uncased")
+    
     # Check if we have an active fine-tuned model
     model_path = "models/active_model"
     if os.path.exists(model_path) and os.path.isdir(model_path):
@@ -159,11 +190,28 @@ def check_document(doc_content):
             tokenizer = AutoTokenizer.from_pretrained(model_path)
         except Exception as e:
             print(f"Error loading fine-tuned model: {str(e)}")
-            # Fall back to the base model
-            model = AutoModelForSequenceClassification.from_pretrained("nlpaueb/legal-bert-base-uncased", num_labels=2)
-            tokenizer = AutoTokenizer.from_pretrained("nlpaueb/legal-bert-base-uncased")
+            # Fall back to the base model (already initialized above)
+            pass
+    
+    # Keywords that indicate non-legal content
+    non_legal_keywords = [
+        "address", "street", "city", "country", "postal", "zip",
+        "name", "mr.", "mrs.", "ms.", "dr.", "prof.", "company",
+        "inc.", "ltd.", "llc", "gmbh", "ag", "sa", "sarl",
+        "date:", "dated:", "signature", "signed", "witness"
+    ]
     
     for clause in doc_content:
+        text = clause["text"].lower()
+        
+        # Skip if the clause contains non-legal content
+        if any(keyword in text for keyword in non_legal_keywords):
+            continue
+            
+        # Skip very short clauses (likely not legal content)
+        if len(text.split()) < 5:
+            continue
+            
         # Tokenize the text
         inputs = tokenizer(clause["text"], return_tensors="pt", truncation=True, max_length=512)
         
@@ -223,14 +271,6 @@ def make_suggestions(problematic_clauses):
     
     return suggestions
 
-def validate_suggestions(suggestions):
-    """
-    Validate suggestions with a second model (self-reflection)
-    """
-    # In a real implementation, this would use a second model
-    # For now, we'll just return the suggestions as-is
-    return suggestions
-
 def create_redline_document(document_id, original_path, suggestions):
     """
     Create a redline document with the suggestions
@@ -243,9 +283,24 @@ def create_redline_document(document_id, original_path, suggestions):
     # Apply suggestions to the document
     for i, para in enumerate(doc.paragraphs):
         if i in suggestion_map:
-            # Add redline formatting
-            para.text = suggestion_map[i]["suggested"]
-            # In a real implementation, you would use proper redlining
+            # Clear existing runs
+            for run in para.runs:
+                run.text = ""
+            
+            # Add original text in red strikethrough
+            original_run = para.add_run(suggestion_map[i]["original"])
+            original_run.font.strike = True
+            original_run.font.color.rgb = RGB(255, 0, 0)  # Red color
+            
+            # Add new line
+            para.add_run("\n")
+            
+            # Add suggested text in green
+            suggested_text = suggestion_map[i]["suggested"]
+            if "SUGGESTED CHANGE: " in suggested_text:
+                suggested_text = suggested_text.split("SUGGESTED CHANGE: ")[1]
+            suggested_run = para.add_run(suggested_text)
+            suggested_run.font.color.rgb = RGB(0, 128, 0)  # Green color
     
     # Save the redline document
     redline_path = f"documents/{document_id}_redline.docx"
@@ -308,7 +363,7 @@ async def submit_feedback(feedback: FeedbackModel):
     # Create new redline document
     redline_path = create_redline_document(
         feedback.document_id, 
-        document_data["original_path"], 
+        document_data["original_file"], 
         updated_suggestions
     )
     
@@ -316,14 +371,14 @@ async def submit_feedback(feedback: FeedbackModel):
     for item in memory:
         if item["document_id"] == feedback.document_id:
             item["data"]["suggestions"] = updated_suggestions
-            item["data"]["redline_path"] = redline_path
+            item["data"]["redline_file"] = redline_path
             item["data"]["feedback"] = feedback.feedback
             break
     
     with open(memory_file, "w") as f:
         json.dump(memory, f)
     
-    return {"document_id": feedback.document_id, "redline_path": redline_path}
+    return {"document_id": feedback.document_id, "redline_file": redline_path}
 
 def interpret_feedback(feedback_text, suggestions):
     """
@@ -359,18 +414,18 @@ async def accept_suggestions(document_id: str):
         raise HTTPException(status_code=404, detail="Document not found")
     
     # Create clean document
-    clean_path = create_clean_document(document_id, document_data["original_path"], document_data["suggestions"])
+    clean_path = create_clean_document(document_id, document_data["original_file"], document_data["suggestions"])
     
     # Update memory
     for item in memory:
         if item["document_id"] == document_id:
-            item["data"]["clean_path"] = clean_path
+            item["data"]["clean_file"] = clean_path
             break
     
     with open(memory_file, "w") as f:
         json.dump(memory, f)
     
-    return {"document_id": document_id, "clean_path": clean_path}
+    return {"document_id": document_id, "clean_file": clean_path}
 
 def create_clean_document(document_id, original_path, suggestions):
     """

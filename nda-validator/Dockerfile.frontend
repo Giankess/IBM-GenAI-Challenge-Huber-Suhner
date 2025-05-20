@@ -8,17 +8,8 @@ COPY package*.json ./
 # Install dependencies
 RUN npm install --legacy-peer-deps
 
-# Create app directory and copy app files
-RUN mkdir -p app
-COPY app/* ./app/
-
-# Copy all other files
+# Copy all files
 COPY . .
-
-# Debug: List all files and directories
-RUN ls -la && \
-    echo "Checking app directory:" && \
-    ls -la app/
 
 # Build the application
 RUN npm run build
@@ -26,5 +17,5 @@ RUN npm run build
 # Expose the port
 EXPOSE 3000
 
-# Start the application
-CMD ["npm", "start"]
+# Start the application in development mode
+CMD ["npm", "run", "dev"]

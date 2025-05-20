@@ -392,7 +392,7 @@ export default function TrainingPage() {
                       <Checkbox
                         id="is-redline"
                         checked={isRedline}
-                        onCheckedChange={(checked: boolean) => {
+                        onCheckedChange={(checked) => {
                           setIsRedline(checked === true)
                           if (!checked) {
                             setRedlineParseResult(null)

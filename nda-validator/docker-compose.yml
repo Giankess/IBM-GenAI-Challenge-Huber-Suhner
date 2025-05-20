@@ -19,7 +19,11 @@ services:
       dockerfile: ../Dockerfile.frontend
     ports:
       - "3000:3000"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
     environment:
       - NEXT_PUBLIC_API_URL=http://localhost:8000
+      - NODE_ENV=development
     depends_on:
       - backend
