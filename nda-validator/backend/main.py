@@ -24,6 +24,7 @@ import json
 import datetime
 from train import train_model, create_dataset, activate_model
 from redline_parser import process_redline_document
+import re
 
 app = FastAPI(title="NDA Validator API")
 
@@ -212,7 +213,18 @@ def check_document(doc_content):
         "address", "street", "city", "country", "postal", "zip",
         "name", "mr.", "mrs.", "ms.", "dr.", "prof.", "company",
         "inc.", "ltd.", "llc", "gmbh", "ag", "sa", "sarl",
-        "date:", "dated:", "signature", "signed", "witness"
+        "date:", "dated:", "signature", "signed", "witness",
+        "sign here", "signature block", "signature line", "signature page",
+        "executed", "execution", "authorized", "authorization"
+    ]
+    
+    # Regular expression to match year amounts
+    year_pattern = re.compile(r'\b(\d+)\s*(?:year|yr)s?\b', re.IGNORECASE)
+    
+    # Keywords for solicitation clauses
+    solicitation_keywords = [
+        "solicit", "solicitation", "employee", "personnel", "staff",
+        "hire", "hiring", "recruit", "recruitment", "poach", "poaching"
     ]
     
     for clause in doc_content:
@@ -225,6 +237,25 @@ def check_document(doc_content):
         # Skip very short clauses (likely not legal content)
         if len(text.split()) < 5:
             continue
+        
+        # Check for year amounts
+        year_matches = year_pattern.findall(text)
+        if year_matches:
+            for year in year_matches:
+                year_num = int(year)
+                # Check if this is a solicitation clause
+                is_solicitation = any(keyword in text for keyword in solicitation_keywords)
+                
+                # Flag clauses with unusually long durations
+                if (is_solicitation and year_num > 1) or (not is_solicitation and year_num > 3):
+                    problematic_clauses.append({
+                        "index": clause["index"],
+                        "text": clause["text"],
+                        "score": 0.9,  # High confidence for year-based issues
+                        "reason": f"Clause contains a long duration of {year_num} years",
+                        "is_solicitation": is_solicitation
+                    })
+                    break  # Only add the clause once even if it has multiple year mentions
             
         # Tokenize the text
         inputs = tokenizer(clause["text"], return_tensors="pt", truncation=True, max_length=512)
@@ -236,11 +267,13 @@ def check_document(doc_content):
             
         # If the model predicts this is a problematic clause (class 1)
         if prediction[0][1] > 0.5:
-            problematic_clauses.append({
-                "index": clause["index"],
-                "text": clause["text"],
-                "score": float(prediction[0][1])
-            })
+            # Only add if not already added due to year amount
+            if not any(p["index"] == clause["index"] for p in problematic_clauses):
+                problematic_clauses.append({
+                    "index": clause["index"],
+                    "text": clause["text"],
+                    "score": float(prediction[0][1])
+                })
     
     return problematic_clauses
 
@@ -273,13 +306,55 @@ def make_suggestions(problematic_clauses):
                 "reason": "This clause has been identified as problematic based on previous redlines."
             }
         else:
-            # Otherwise use a generic suggestion
-            suggestion = {
-                "index": clause["index"],
-                "original": clause["text"],
-                "suggested": f"SUGGESTED CHANGE: {clause['text']} [This clause has been identified as potentially problematic and should be reviewed]",
-                "reason": "This clause may contain terms that are unfavorable or legally problematic."
-            }
+            # Check if this is a year-based issue
+            year_pattern = re.compile(r'\b(\d+)\s*(?:year|yr)s?\b', re.IGNORECASE)
+            year_matches = year_pattern.findall(clause["text"])
+            
+            if year_matches:
+                year_num = int(year_matches[0])
+                is_solicitation = clause.get("is_solicitation", False)
+                
+                if (is_solicitation and year_num > 1) or (not is_solicitation and year_num > 3):
+                    # Create a suggestion to reduce the duration
+                    modified_text = clause["text"]
+                    target_years = "1 year" if is_solicitation else "3 years"
+                    
+                    for year in year_matches:
+                        modified_text = modified_text.replace(
+                            f"{year} years", 
+                            target_years
+                        ).replace(
+                            f"{year} year", 
+                            target_years
+                        ).replace(
+                            f"{year}yrs", 
+                            target_years
+                        ).replace(
+                            f"{year}yr", 
+                            target_years
+                        )
+                    
+                    suggestion = {
+                        "index": clause["index"],
+                        "original": clause["text"],
+                        "suggested": f"SUGGESTED CHANGE: {modified_text} [Duration reduced to standard {target_years}]",
+                        "reason": f"This clause contains an unusually long duration that may be unfavorable. {'Solicitation' if is_solicitation else 'General agreement'} clauses should be limited to {target_years}."
+                    }
+                else:
+                    suggestion = {
+                        "index": clause["index"],
+                        "original": clause["text"],
+                        "suggested": f"SUGGESTED CHANGE: {clause['text']} [This clause contains a duration that should be reviewed]",
+                        "reason": "This clause contains a duration that may need review."
+                    }
+            else:
+                # Otherwise use a generic suggestion
+                suggestion = {
+                    "index": clause["index"],
+                    "original": clause["text"],
+                    "suggested": f"SUGGESTED CHANGE: {clause['text']} [This clause has been identified as potentially problematic and should be reviewed]",
+                    "reason": "This clause may contain terms that are unfavorable or legally problematic."
+                }
         
         suggestions.append(suggestion)
     
@@ -287,7 +362,8 @@ def make_suggestions(problematic_clauses):
 
 def create_redline_document(document_id, original_path, suggestions):
     """
-    Create a redline document with the suggestions
+    Create a redline document with the suggestions, preserving document structure
+    and only modifying problematic text.
     """
     doc = Document(original_path)
     
@@ -297,24 +373,53 @@ def create_redline_document(document_id, original_path, suggestions):
     # Apply suggestions to the document
     for i, para in enumerate(doc.paragraphs):
         if i in suggestion_map:
+            # Store the original paragraph text and formatting
+            original_text = para.text
+            original_runs = list(para.runs)  # Store original runs for formatting
+            
             # Clear existing runs
             for run in para.runs:
                 run.text = ""
             
-            # Add original text in red strikethrough
-            original_run = para.add_run(suggestion_map[i]["original"])
-            original_run.font.strike = True
-            original_run.font.color.rgb = RGBColor(255, 0, 0)  # Red color
-            
-            # Add new line
-            para.add_run("\n")
-            
-            # Add suggested text in green
+            # Get the problematic text and its replacement
+            problematic_text = suggestion_map[i]["original"].strip()
             suggested_text = suggestion_map[i]["suggested"]
             if "SUGGESTED CHANGE: " in suggested_text:
-                suggested_text = suggested_text.split("SUGGESTED CHANGE: ")[1]
-            suggested_run = para.add_run(suggested_text)
-            suggested_run.font.color.rgb = RGBColor(0, 128, 0)  # Green color
+                suggested_text = suggested_text.split("SUGGESTED CHANGE: ")[1].strip()
+            
+            # Find the problematic text in the original paragraph
+            if problematic_text in original_text:
+                # Split the text around the problematic section
+                parts = original_text.split(problematic_text)
+                
+                # Add text before the problematic section (if any)
+                if parts[0]:
+                    before_run = para.add_run(parts[0])
+                    before_run.font.color.rgb = RGBColor(0, 0, 0)  # Black color
+                
+                # Add the problematic text in red strikethrough
+                original_run = para.add_run(problematic_text)
+                original_run.font.strike = True
+                original_run.font.color.rgb = RGBColor(255, 0, 0)  # Red color
+                
+                # Add a space between original and suggested text
+                para.add_run(" ")
+                
+                # Add the suggested text in red (changed from black to red)
+                suggested_run = para.add_run(suggested_text)
+                suggested_run.font.color.rgb = RGBColor(255, 0, 0)  # Red color
+                
+                # Add text after the problematic section (if any)
+                if len(parts) > 1 and parts[1]:
+                    after_run = para.add_run(parts[1])
+                    after_run.font.color.rgb = RGBColor(0, 0, 0)  # Black color
+            else:
+                # If we can't find the exact text, preserve the original paragraph
+                para.text = original_text
+                # Restore original formatting
+                for run in original_runs:
+                    new_run = para.add_run(run.text)
+                    new_run.font.color.rgb = RGBColor(0, 0, 0)  # Black color
     
     # Save the redline document
     redline_path = f"{DOCUMENTS_DIR}/{document_id}_redline.docx"

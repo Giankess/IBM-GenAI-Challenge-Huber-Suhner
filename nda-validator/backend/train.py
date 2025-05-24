@@ -17,8 +17,11 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 logger = logging.getLogger(__name__)
 
 # Create directories for storing training data and models
-os.makedirs("training_data", exist_ok=True)
-os.makedirs("models", exist_ok=True)
+TRAINING_DIR = "/training_data"
+MODELS_DIR = "/models"
+
+os.makedirs(TRAINING_DIR, exist_ok=True)
+os.makedirs(MODELS_DIR, exist_ok=True)
 
 class NDADataset(Dataset):
     def __init__(self, texts, labels, tokenizer, max_length=512):
@@ -160,7 +163,7 @@ def load_dataset(dataset_id):
     """
     Load all documents in a dataset and prepare for training
     """
-    dataset_dir = f"training_data/{dataset_id}"
+    dataset_dir = f"{TRAINING_DIR}/{dataset_id}"
     
     if not os.path.exists(dataset_dir):
         raise ValueError(f"Dataset {dataset_id} not found")
@@ -179,18 +182,30 @@ def load_dataset(dataset_id):
             continue
             
         file_path = os.path.join(dataset_dir, filename)
+        logger.info(f"Processing file: {filename}")
         
         if filename.endswith('.docx') or filename.endswith('.doc'):
             # Check if it's a redline document
-            if "redline" in filename.lower() or metadata.get("is_redline", False):
+            is_redline = "redline" in filename.lower() or metadata.get("is_redline", False)
+            logger.info(f"Document is {'redline' if is_redline else 'regular'}")
+            
+            if is_redline:
                 clauses, labels, replacements = parse_redline_document(file_path)
-                all_replacements.extend(replacements)
+                if replacements:
+                    logger.info(f"Found {len(replacements)} replacements in redline document")
+                    all_replacements.extend(replacements)
+                else:
+                    logger.warning("No replacements found in redline document")
             else:
                 clauses, labels = parse_training_document(file_path)
                 replacements = []
+                logger.info(f"Found {sum(labels)} problematic clauses in regular document")
         elif filename.endswith('.json'):
             clauses, labels, replacements = parse_json_annotations(file_path)
-            all_replacements.extend(replacements)
+            if replacements:
+                logger.info(f"Found {len(replacements)} replacements in JSON annotations")
+                all_replacements.extend(replacements)
+            logger.info(f"Found {sum(labels)} problematic clauses in JSON annotations")
         else:
             logger.warning(f"Skipping unsupported file: {filename}")
             continue
@@ -207,7 +222,7 @@ def load_dataset(dataset_id):
     with open(replacements_path, 'w') as f:
         json.dump(all_replacements, f, indent=2)
     
-    return all_clauses, all_labels, metadata
+    return all_clauses, all_labels, all_replacements
 
 def train_model(dataset_id, epochs=3, batch_size=8, learning_rate=2e-5):
     """
@@ -215,7 +230,7 @@ def train_model(dataset_id, epochs=3, batch_size=8, learning_rate=2e-5):
     """
     # Create a unique job ID
     job_id = str(uuid.uuid4())
-    job_dir = f"models/{job_id}"
+    job_dir = f"{MODELS_DIR}/{job_id}"
     os.makedirs(job_dir, exist_ok=True)
     
     # Save job metadata
@@ -318,7 +333,7 @@ def train_model(dataset_id, epochs=3, batch_size=8, learning_rate=2e-5):
             "is_active": False
         }
         
-        with open(f"models/versions.json", 'r+') as f:
+        with open(f"{MODELS_DIR}/versions.json", 'r+') as f:
             try:
                 versions = json.load(f)
             except json.JSONDecodeError:
@@ -350,7 +365,7 @@ def activate_model(model_version_id):
     Activate a model version for use in the NDA validator
     """
     try:
-        with open(f"models/versions.json", 'r+') as f:
+        with open(f"{MODELS_DIR}/versions.json", 'r+') as f:
             versions = json.load(f)
             
             # Set all models to inactive
@@ -372,10 +387,10 @@ def activate_model(model_version_id):
             json.dump(versions, f, indent=2)
         
         # Create a symlink to the active model
-        active_model_path = f"models/{active_job_id}/final_model"
-        if os.path.exists("models/active_model"):
-            os.remove("models/active_model")
-        os.symlink(active_model_path, "models/active_model", target_is_directory=True)
+        active_model_path = f"{MODELS_DIR}/{active_job_id}/final_model"
+        if os.path.exists(f"{MODELS_DIR}/active_model"):
+            os.remove(f"{MODELS_DIR}/active_model")
+        os.symlink(active_model_path, f"{MODELS_DIR}/active_model", target_is_directory=True)
         
         logger.info(f"Activated model version {model_version_id}")
         return True
@@ -389,7 +404,7 @@ def create_dataset(name, files, is_redline=False):
     Create a new training dataset from uploaded files
     """
     dataset_id = str(uuid.uuid4())
-    dataset_dir = f"training_data/{dataset_id}"
+    dataset_dir = f"{TRAINING_DIR}/{dataset_id}"
     os.makedirs(dataset_dir, exist_ok=True)
     
     # Save dataset metadata

@@ -7,9 +7,9 @@ services:
       - "8000:8000"
     volumes:
       - ./documents:/documents
-      - ./memory:/memory
-      - ./training_data:/training_data
-      - ./models:/models
+      - ./backend/memory:/memory
+      - ./backend/training_data:/training_data
+      - ./backend/models:/models
     environment:
       - PORT=8000
 

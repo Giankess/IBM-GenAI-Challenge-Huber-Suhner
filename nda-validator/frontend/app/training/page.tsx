@@ -93,13 +93,15 @@ export default function TrainingPage() {
   }, [activeTab])
 
   const fetchDatasets = async () => {
-    setIsLoading((prev) => ({ ...prev, datasets: true }))
+    setIsLoading((prev: { datasets: boolean; jobs: boolean; models: boolean }) => ({ ...prev, datasets: true }))
     try {
+      console.log('Fetching datasets from:', `${API_BASE_URL}/datasets`)
       const response = await fetch(`${API_BASE_URL}/datasets`)
       if (!response.ok) {
         throw new Error(`Failed to fetch datasets: ${response.status}`)
       }
       const data = await response.json()
+      console.log('Received datasets:', data)
       setDatasets(data)
     } catch (error) {
       console.error("Error fetching datasets:", error)
@@ -109,18 +111,20 @@ export default function TrainingPage() {
         variant: "destructive",
       })
     } finally {
-      setIsLoading((prev) => ({ ...prev, datasets: false }))
+      setIsLoading((prev: { datasets: boolean; jobs: boolean; models: boolean }) => ({ ...prev, datasets: false }))
     }
   }
 
   const fetchTrainingJobs = async () => {
-    setIsLoading((prev) => ({ ...prev, jobs: true }))
+    setIsLoading((prev: { datasets: boolean; jobs: boolean; models: boolean }) => ({ ...prev, jobs: true }))
     try {
+      console.log('Fetching training jobs from:', `${API_BASE_URL}/training`)
       const response = await fetch(`${API_BASE_URL}/training`)
       if (!response.ok) {
         throw new Error(`Failed to fetch training jobs: ${response.status}`)
       }
       const data = await response.json()
+      console.log('Received training jobs:', data)
       setTrainingJobs(data)
     } catch (error) {
       console.error("Error fetching training jobs:", error)
@@ -130,12 +134,12 @@ export default function TrainingPage() {
         variant: "destructive",
       })
     } finally {
-      setIsLoading((prev) => ({ ...prev, jobs: false }))
+      setIsLoading((prev: { datasets: boolean; jobs: boolean; models: boolean }) => ({ ...prev, jobs: false }))
     }
   }
 
   const fetchModelVersions = async () => {
-    setIsLoading((prev) => ({ ...prev, models: true }))
+    setIsLoading((prev: { datasets: boolean; jobs: boolean; models: boolean }) => ({ ...prev, models: true }))
     try {
       const response = await fetch(`${API_BASE_URL}/models`)
       if (!response.ok) {
@@ -151,7 +155,7 @@ export default function TrainingPage() {
         variant: "destructive",
       })
     } finally {
-      setIsLoading((prev) => ({ ...prev, models: false }))
+      setIsLoading((prev: { datasets: boolean; jobs: boolean; models: boolean }) => ({ ...prev, models: false }))
     }
   }
 
@@ -384,7 +388,7 @@ export default function TrainingPage() {
                         id="dataset-name"
                         placeholder="e.g., Corporate NDAs 2025"
                         value={datasetName}
-                        onChange={(e) => setDatasetName(e.target.value)}
+                        onChange={(e: React.ChangeEvent<HTMLInputElement>) => setDatasetName(e.target.value)}
                       />
                     </div>
 
@@ -471,8 +475,8 @@ export default function TrainingPage() {
                               </TableHeader>
                               <TableBody>
                                 {redlineParseResult.data.clauses
-                                  .filter((clause) => clause.is_problematic)
-                                  .map((clause, index) => (
+                                  .filter((clause: { text: string; is_problematic: boolean; replacement?: string }) => clause.is_problematic)
+                                  .map((clause: { text: string; is_problematic: boolean; replacement?: string }, index: number) => (
                                     <TableRow key={index}>
                                       <TableCell className="text-red-600 line-through">{clause.text}</TableCell>
                                       <TableCell className="text-green-600">{clause.replacement}</TableCell>

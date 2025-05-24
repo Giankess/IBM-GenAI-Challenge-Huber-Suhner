@@ -51,8 +51,10 @@ def parse_redline_document(docx_path):
     """
     Parse a Word document with tracked changes (redline) and extract problematic clauses and replacements
     """
+    logger.info(f"Attempting to parse redline document: {docx_path}")
     xml_path, temp_dir = extract_docx_xml(docx_path)
     if not xml_path:
+        logger.warning("Failed to extract XML from document, falling back to python-docx method")
         return []
     
     try:
@@ -76,20 +78,23 @@ def parse_redline_document(docx_path):
             # Process each run in the paragraph
             for run in paragraph.findall('.//w:r', namespaces):
                 # Check if this run is deleted text
-                del_nodes = run.findall('.//w:del', namespaces) + run.findall('.//w:delText', namespaces)
+                del_nodes = run.findall('.//w:del', namespaces)
                 if del_nodes:
                     # This is deleted text (problematic)
-                    for del_node in run.findall('.//w:delText', namespaces) + run.findall('.//w:t', namespaces):
-                        if del_node.text:
-                            deletions.append(del_node.text)
+                    for del_node in del_nodes:
+                        # Look for text in both delText and t nodes
+                        for text_node in del_node.findall('.//w:delText', namespaces) + del_node.findall('.//w:t', namespaces):
+                            if text_node.text:
+                                deletions.append(text_node.text)
                 
                 # Check if this run is inserted text
                 ins_nodes = run.findall('.//w:ins', namespaces)
                 if ins_nodes:
                     # This is inserted text (replacement)
-                    for ins_text in run.findall('.//w:t', namespaces):
-                        if ins_text.text:
-                            insertions.append(ins_text.text)
+                    for ins_node in ins_nodes:
+                        for text_node in ins_node.findall('.//w:t', namespaces):
+                            if text_node.text:
+                                insertions.append(text_node.text)
                 
                 # Regular text
                 for text in run.findall('.//w:t', namespaces):
@@ -98,6 +103,7 @@ def parse_redline_document(docx_path):
             
             # If we found tracked changes in this paragraph
             if deletions or insertions:
+                logger.info(f"Found tracked changes in paragraph: {paragraph_text[:50]}...")
                 redline_data.append({
                     "paragraph_text": paragraph_text,
                     "problematic_text": "".join(deletions),
@@ -107,7 +113,12 @@ def parse_redline_document(docx_path):
         # Clean up
         cleanup_temp_dir(temp_dir)
         
-        return redline_data
+        if redline_data:
+            logger.info(f"Successfully parsed {len(redline_data)} paragraphs with tracked changes")
+            return redline_data
+        else:
+            logger.warning("No tracked changes found in XML, falling back to python-docx method")
+            return []
     
     except Exception as e:
         logger.error(f"Error parsing redline document: {str(e)}")
@@ -120,6 +131,7 @@ def parse_redline_with_python_docx(docx_path):
     This is a fallback method that doesn't directly access tracked changes
     but tries to identify them through formatting
     """
+    logger.info(f"Using python-docx fallback method for: {docx_path}")
     try:
         doc = Document(docx_path)
         redline_data = []
@@ -131,10 +143,17 @@ def parse_redline_with_python_docx(docx_path):
             
             # Look for formatting that might indicate tracked changes
             for run in para.runs:
-                if run.font.strike:  # Strikethrough text is often used for deletions
+                # Check for strikethrough text (deletions)
+                if hasattr(run.font, 'strike') and run.font.strike:
                     problematic_parts.append(run.text)
-                elif run.font.color.rgb and run.font.color.rgb != (0, 0, 0):  # Colored text often indicates additions
-                    replacement_parts.append(run.text)
+                    logger.info(f"Found strikethrough text: {run.text}")
+                
+                # Check for colored text (additions)
+                if hasattr(run.font, 'color') and run.font.color and run.font.color.rgb:
+                    # Check if the color is not black (0,0,0)
+                    if run.font.color.rgb != (0, 0, 0):
+                        replacement_parts.append(run.text)
+                        logger.info(f"Found colored text: {run.text}")
             
             if problematic_parts or replacement_parts:
                 redline_data.append({
@@ -142,6 +161,11 @@ def parse_redline_with_python_docx(docx_path):
                     "problematic_text": "".join(problematic_parts),
                     "replacement_text": "".join(replacement_parts)
                 })
+        
+        if redline_data:
+            logger.info(f"Found {len(redline_data)} paragraphs with formatting-based changes")
+        else:
+            logger.warning("No formatting-based changes found in document")
         
         return redline_data
     
