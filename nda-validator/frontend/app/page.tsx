@@ -12,7 +12,7 @@ import Link from "next/link"
 import { toast } from "@/components/ui/use-toast"
 
 // API base URL - in a real app, this would come from environment variables
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://backend:8000"
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
 
 export default function Home() {
   const [step, setStep] = useState<"upload" | "review" | "feedback" | "complete">("upload")

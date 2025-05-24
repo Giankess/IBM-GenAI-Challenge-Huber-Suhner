@@ -7,6 +7,7 @@ import os
 import tempfile
 import shutil
 from docx import Document
+from docx.shared import RGBColor
 try:
     from docx.shared import RGB
 except ImportError:
@@ -36,14 +37,19 @@ app.add_middleware(
 )
 
 # Create directories for storing documents and memory
-os.makedirs("documents", exist_ok=True)
-os.makedirs("memory", exist_ok=True)
-os.makedirs("training_data", exist_ok=True)
-os.makedirs("models", exist_ok=True)
+DOCUMENTS_DIR = "/documents"
+MEMORY_DIR = "/memory"
+TRAINING_DIR = "/training_data"
+MODELS_DIR = "/models"
+
+os.makedirs(DOCUMENTS_DIR, exist_ok=True)
+os.makedirs(MEMORY_DIR, exist_ok=True)
+os.makedirs(TRAINING_DIR, exist_ok=True)
+os.makedirs(MODELS_DIR, exist_ok=True)
 
 # Initialize versions.json if it doesn't exist
-if not os.path.exists("models/versions.json"):
-    with open("models/versions.json", "w") as f:
+if not os.path.exists(f"{MODELS_DIR}/versions.json"):
+    with open(f"{MODELS_DIR}/versions.json", "w") as f:
         json.dump([], f)
 
 # Initialize the legal-bert model
@@ -51,15 +57,15 @@ tokenizer = AutoTokenizer.from_pretrained("nlpaueb/legal-bert-base-uncased")
 model = AutoModelForSequenceClassification.from_pretrained("nlpaueb/legal-bert-base-uncased", num_labels=2)
 
 # Memory storage
-memory_file = "memory/memory.json"
+memory_file = f"{MEMORY_DIR}/memory.json"
 if not os.path.exists(memory_file):
     with open(memory_file, "w") as f:
         json.dump([], f)
 
 # Load replacements database if it exists
 replacements_db = {}
-for dataset_dir in os.listdir("training_data"):
-    replacements_path = f"training_data/{dataset_dir}/replacements.json"
+for dataset_dir in os.listdir(TRAINING_DIR):
+    replacements_path = f"{TRAINING_DIR}/{dataset_dir}/replacements.json"
     if os.path.exists(replacements_path):
         try:
             with open(replacements_path, 'r') as f:
@@ -100,7 +106,7 @@ async def upload_document(file: UploadFile = File(...)):
     print(f"Processing document with ID: {document_id}")
     
     # Save the uploaded file
-    file_path = f"documents/{document_id}.docx"
+    file_path = f"{DOCUMENTS_DIR}/{document_id}.docx"
     try:
         print(f"Saving uploaded file to: {file_path}")
         with open(file_path, "wb") as f:
@@ -298,7 +304,7 @@ def create_redline_document(document_id, original_path, suggestions):
             # Add original text in red strikethrough
             original_run = para.add_run(suggestion_map[i]["original"])
             original_run.font.strike = True
-            original_run.font.color.rgb = RGB(255, 0, 0)  # Red color
+            original_run.font.color.rgb = RGBColor(255, 0, 0)  # Red color
             
             # Add new line
             para.add_run("\n")
@@ -308,10 +314,10 @@ def create_redline_document(document_id, original_path, suggestions):
             if "SUGGESTED CHANGE: " in suggested_text:
                 suggested_text = suggested_text.split("SUGGESTED CHANGE: ")[1]
             suggested_run = para.add_run(suggested_text)
-            suggested_run.font.color.rgb = RGB(0, 128, 0)  # Green color
+            suggested_run.font.color.rgb = RGBColor(0, 128, 0)  # Green color
     
     # Save the redline document
-    redline_path = f"documents/{document_id}_redline.docx"
+    redline_path = f"{DOCUMENTS_DIR}/{document_id}_redline.docx"
     doc.save(redline_path)
     
     return redline_path
@@ -340,7 +346,7 @@ async def download_document(document_id: str, type: str):
     if type not in ["redline", "clean"]:
         raise HTTPException(status_code=400, detail="Invalid document type")
     
-    file_path = f"documents/{document_id}_{type}.docx"
+    file_path = f"{DOCUMENTS_DIR}/{document_id}_{type}.docx"
     
     if not os.path.exists(file_path):
         raise HTTPException(status_code=404, detail="Document not found")
@@ -457,7 +463,7 @@ def create_clean_document(document_id, original_path, suggestions):
             para.text = suggested_text
     
     # Save the clean document
-    clean_path = f"documents/{document_id}_clean.docx"
+    clean_path = f"{DOCUMENTS_DIR}/{document_id}_clean.docx"
     doc.save(clean_path)
     
     return clean_path
@@ -493,8 +499,8 @@ async def list_datasets():
     """
     datasets = []
     
-    for dataset_dir in os.listdir("training_data"):
-        metadata_path = f"training_data/{dataset_dir}/metadata.json"
+    for dataset_dir in os.listdir(TRAINING_DIR):
+        metadata_path = f"{TRAINING_DIR}/{dataset_dir}/metadata.json"
         if os.path.exists(metadata_path):
             with open(metadata_path, 'r') as f:
                 metadata = json.load(f)
@@ -508,7 +514,7 @@ async def start_training(training: TrainingModel, background_tasks: BackgroundTa
     Start a training job for a dataset
     """
     # Verify the dataset exists
-    dataset_path = f"training_data/{training.dataset_id}"
+    dataset_path = f"{TRAINING_DIR}/{training.dataset_id}"
     if not os.path.exists(dataset_path):
         raise HTTPException(status_code=404, detail="Dataset not found")
     
@@ -533,11 +539,11 @@ async def list_training_jobs():
     """
     jobs = []
     
-    for job_dir in os.listdir("models"):
+    for job_dir in os.listdir(MODELS_DIR):
         if job_dir == "versions.json" or job_dir == "active_model":
             continue
             
-        metadata_path = f"models/{job_dir}/metadata.json"
+        metadata_path = f"{MODELS_DIR}/{job_dir}/metadata.json"
         if os.path.exists(metadata_path):
             with open(metadata_path, 'r') as f:
                 metadata = json.load(f)
@@ -550,7 +556,7 @@ async def list_model_versions():
     """
     List all model versions
     """
-    with open("models/versions.json", 'r') as f:
+    with open(f"{MODELS_DIR}/versions.json", 'r') as f:
         try:
             versions = json.load(f)
         except json.JSONDecodeError:
